@@ -1,0 +1,165 @@
+#!/usr/local/bin/managed_python3
+# -*- coding: utf-8 -*-
+
+"""
+Set Default Dock
+This script will set the default user dock with Comcast
+standard apps and will remove most of the default Apple apps.
+©2021-Current by Sergio Aviles
+version 1.0.0 2021-11-12 initial commit
+version 1.1.0 2022-02-24 Specified exact condition to skip modifying the dock.
+version 1.1.1 2022-03-04 Moved dock.save() function inside loop in an attempt
+                         to prevent adding additional instances of the same
+                         app.
+version 1.1.2 2022-03-11 changed log file location to logged in user's Library directory
+                         folder.
+version 1.1.3 2022-03-14 Changed set_default_dock function to prevent looping, and correctly
+                         add applications. With help from Chris Collins and Elliot Jordan from
+                         the MacAdmins Slack Team.
+"""
+
+# Imports
+
+import os
+import sys
+import logging
+import CoreFoundation
+from docklib import Dock
+from Foundation import CFPreferencesSetAppValue, kCFPreferencesAnyUser, kCFPreferencesCurrentHost
+
+
+# Variables
+dock = Dock()
+
+# Logging
+LOG_LOCATION = "/Users/Shared/set_default_dock.log"
+LOGGING_FORMAT = "%(asctime)s [%(name)s] [%(levelname)s]: %(message)s"
+SCRIPT_NAME = "Configure Default User Dock"
+formatter = logging.Formatter(LOGGING_FORMAT)
+logging.basicConfig(format=LOGGING_FORMAT, level=logging.DEBUG)
+logger = logging.getLogger(SCRIPT_NAME)
+fh = logging.FileHandler(LOG_LOCATION)
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(formatter)
+logger.addHandler(fh)
+
+
+# Functions
+
+def set_default_dock():
+    """Apps to add to user's Dock."""
+    app_paths = [
+        "/Applications/BIG-IP Edge Client.app",
+        "/Applications/Company Portal.app",
+        "/Applications/Cisco Jabber.app",
+        "/Applications/Google Chrome.app",
+        "/Applications/Mersive Solstice.app",
+        "/Applications/Microsoft Excel.app",
+        "/Applications/Microsoft OneNote.app",
+        "/Applications/Microsoft Outlook.app",
+        "/Applications/Microsoft PowerPoint.app",
+        "/Applications/Microsoft Word.app",
+        "/Applicaitons/Microsoft Teams.app",
+        "/Applications/Self Service.app",
+    ]
+    
+    changed = False
+    
+    dock.items["persistent-apps"] = []
+    for app_path in app_paths:
+        logger.debug("Path: %s" % (app_path))
+        if os.path.exists(app_path):
+            app_name = os.path.split(app_path)[-1].replace(".app", "")
+            logger.info("Found %s. Checking if already in Dock.", app_name)
+            if dock.findExistingLabel(app_path) == -1:
+                logger.info("Adding %s to Dock.", app_path)
+                app = dock.makeDockAppEntry(app_path)
+                dock.items["persistent-apps"].append(app)
+                changed = True
+            else:
+                logger.info("%s already in Dock. Skipping", app_name)
+        else:
+            logger.info("%s not installed. Skipping.", app_name)
+    
+    if changed:
+        dock.save()
+
+
+def remove_apps_from_dock():
+    """Apps to remove from retail user's Dock"""
+    remove_apps = [
+        "Calendar",
+        "Contacts",
+        "Facetime",
+        "iTunes",
+        "Keynote",
+        "Mail",
+        "Maps",
+        "Messages",
+        "Music",
+        "News",
+        "Notes",
+        "Numbers",
+        "Pages",
+        "Photos",
+        "Podcasts",
+        "Reminders",
+        "System Preferences",
+        "TV",
+    ]
+    changed = False
+    
+    for app in remove_apps:
+        if dock.findExistingLabel(app) != -1:
+            logger.info("Removing %s from Dock", app)
+            dock.removeDockEntry(app)
+            changed = True
+        else:
+            logger.info("%s not in Dock. Skipping.", app)
+            
+    if changed:
+        dock.save()
+
+
+def set_dock_modified():
+    """Set dockModified key in CIS plist to true."""
+    plist = "/Library/Preferences/com.comcast.cable.cis.plist"
+    logger.info("Set dockModified key in CIS plist.")
+    CFPreferencesSetAppValue("dockModified", True, plist)
+
+
+def dock_modified():
+    """Check to see if the dockModified key in the CIS plist has
+    been set already."""
+    plist = "/Library/Preferences/com.comcast.cable.cis.plist"
+    if os.path.exists(plist):
+        logger.info("Checking to see if Dock has been modified already.")
+        value = CoreFoundation.CFPreferencesCopyValue("dockModified", plist, kCFPreferencesAnyUser, kCFPreferencesCurrentHost)
+        if value == 1:
+            return True
+        else:
+            return False
+    else:
+        return False
+
+
+def main():
+    """The thing to be done"""
+    logger.info("-----Start-----")
+    dock_state = dock_modified()
+    if dock_state is True:
+        logger.info("Dock has already been modified. Exiting.")
+    else:
+        set_default_dock()
+        remove_apps_from_dock()
+        set_dock_modified()
+    logger.info("-----End-----")
+
+
+# Execute
+
+
+if __name__ == "__main__":
+    """Do the thing."""
+    main()
+    sys.exit(0)
